@@ -1,124 +1,290 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
+import { auth, db } from '@/lib/firebase'
+import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth'
+import { collection, getDocs, query, orderBy, updateDoc, doc, limit } from 'firebase/firestore'
 import Link from 'next/link'
 
-export default function MapPage() {
-  const [darkMode, setDarkMode] = useState(true)
-  const [selectedRider, setSelectedRider] = useState<any>(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
+const ADMIN_UID = 'aGp4yilLXHf26EuHV236plJZHoa2'
 
-  const riders = [
-    { id: 'r1', name: 'John Banda', lat: -15.3875, lng: 28.3228, deliveries: 5, phone: '0977123456' },
-    { id: 'r2', name: 'Mary Phiri', lat: -15.4082, lng: 28.2871, deliveries: 3, phone: '0977234567' },
-    { id: 'r3', name: 'Peter Mwale', lat: -15.4167, lng: 28.2833, deliveries: 7, phone: '0977345678' },
-    { id: 'r4', name: 'Grace Tembo', lat: -15.4250, lng: 28.3167, deliveries: 2, phone: '0977456789' },
-    { id: 'r5', name: 'David Zulu', lat: -15.3950, lng: 28.3000, deliveries: 4, phone: '0977567890' },
-  ]
+export default function AdminPage() {
+  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+
+  const [feedback, setFeedback] = useState<any[]>([])
+  const [orders, setOrders] = useState<any[]>([])
+  const [riders, setRiders] = useState<any[]>([])
+  const [stats, setStats] = useState({ visits: 0, todayVisits: 0, users: 0, products: 0 })
+  const [activeTab, setActiveTab] = useState<'stats' | 'orders' | 'feedback' | 'riders'>('stats')
 
   useEffect(() => {
-    // Load Leaflet CSS and JS dynamically
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = 'https://unpkg.com/leaflet@1.7.1/dist/leaflet.css'
-    document.head.appendChild(link)
-
-    const script = document.createElement('script')
-    script.src = 'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js'
-    script.onload = () => {
-      setMapLoaded(true)
-    }
-    document.head.appendChild(script)
+    const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false) })
+    return () => unsub()
   }, [])
 
   useEffect(() => {
-    if (!mapLoaded) return
+    if (!user || user.uid !== ADMIN_UID) return
+    fetchData()
+  }, [user])
 
-    const L = (window as any).L
-    if (!L) return
+  const fetchData = async () => {
+    const fbSnap = await getDocs(query(collection(db, 'feedback'), orderBy('createdAt', 'desc'), limit(50)))
+    setFeedback(fbSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
 
-    const map = L.map('map-container').setView([-15.4082, 28.2871], 13)
+    const orderSnap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(50)))
+    setOrders(orderSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap',
-    }).addTo(map)
+    const riderSnap = await getDocs(query(collection(db, 'riders'), orderBy('createdAt', 'desc')))
+    setRiders(riderSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
 
-    // Dark filter
-    if (darkMode) {
-      const filter = L.tileLayer('', {}).addTo(map)
-    }
-
-    // Rider markers
-    riders.forEach((r) => {
-      const marker = L.marker([r.lat, r.lng], {
-        icon: L.divIcon({
-          html: `<div style="background:#e33124;color:white;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;border:2px solid white;box-shadow:0 2px 10px rgba(0,0,0,0.3)">🚴</div>`,
-          iconSize: [36, 36],
-          className: '',
-        }),
-      }).addTo(map)
-
-      marker.on('click', () => setSelectedRider(r))
-      marker.bindPopup(`<b>${r.name}</b><br/>📱 ${r.phone}<br/>✅ ${r.deliveries} deliveries`)
+    const visitSnap = await getDocs(query(collection(db, 'visits'), limit(200)))
+    const visitsData = visitSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+    const today = new Date().toISOString().split('T')[0]
+    const userSnap = await getDocs(collection(db, 'profiles'))
+    const prodSnap = await getDocs(collection(db, 'products'))
+    setStats({
+      visits: visitsData.length,
+      todayVisits: visitsData.filter((v: any) => v.timestamp?.startsWith(today)).length,
+      users: userSnap.size,
+      products: prodSnap.size,
     })
+  }
 
-    // Pickup point
-    L.marker([-15.4167, 28.2833], {
-      icon: L.divIcon({
-        html: `<div style="background:#22c55e;color:white;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;border:2px solid white;box-shadow:0 2px 10px rgba(0,0,0,0.3)">📍</div>`,
-        iconSize: [36, 36],
-        className: '',
-      }),
-    }).addTo(map).bindPopup('<b>Pickup Point</b><br/>Lusaka CBD')
+  const assignRider = async (orderId: string, riderId: string, riderName: string) => {
+    await updateDoc(doc(db, 'orders', orderId), { riderId, riderName, deliveryStatus: 'assigned' })
+    fetchData()
+  }
 
-    // Route lines
-    const routes = [
-      { from: [-15.3875, 28.3228], to: [-15.4167, 28.2833], color: '#e33124' },
-      { from: [-15.4082, 28.2871], to: [-15.4250, 28.3167], color: '#f97316' },
-    ]
-    routes.forEach(route => {
-      L.polyline([route.from, route.to], { color: route.color, weight: 4, opacity: 0.6, dashArray: '10, 10' }).addTo(map)
-    })
+  const updateOrderStatus = async (orderId: string, status: string) => {
+    await updateDoc(doc(db, 'orders', orderId), { deliveryStatus: status })
+    fetchData()
+  }
 
-    return () => map.remove()
-  }, [mapLoaded])
+  const approveRider = async (riderId: string) => {
+    await updateDoc(doc(db, 'riders', riderId), { status: 'active' })
+    fetchData()
+  }
+
+  const resolveFeedback = async (id: string) => {
+    await updateDoc(doc(db, 'feedback', id), { resolved: true })
+    fetchData()
+  }
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoginLoading(true)
+    setLoginError('')
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password)
+      if (result.user.uid !== ADMIN_UID) { await signOut(auth); setLoginError('Unauthorized') }
+    } catch (err: any) { setLoginError(err.message) }
+    setLoginLoading(false)
+  }
+
+  if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-black text-red-600">baComesa</h1>
+            <p className="text-gray-500">Admin Panel</p>
+          </div>
+          {loginError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl mb-4 text-sm">{loginError}</div>}
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Admin Email" required className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-red-500" />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" required className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-red-500" />
+            <button type="submit" disabled={loginLoading} className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700">
+              {loginLoading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
+  if (user.uid !== ADMIN_UID) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-xl mb-4">Access Denied</p>
+          <button onClick={() => signOut(auth)} className="bg-red-600 text-white px-6 py-2 rounded-full">Logout</button>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div style={{ width: '100vw', height: '100vh', backgroundColor: '#0d1b2a', position: 'relative', overflow: 'hidden' }}>
-      {/* Map Container */}
-      <div id="map-container" style={{ width: '100%', height: '100%', filter: darkMode ? 'invert(90%) hue-rotate(180deg) brightness(95%) contrast(90%)' : 'none' }} />
-
-      {/* TOP BAR */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, background: 'linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%)', padding: '16px 20px 30px', display: 'flex', justifyContent: 'space-between' }}>
-        <Link href="/" style={{ color: 'white', textDecoration: 'none', fontWeight: 700, fontSize: '20px' }}>← baComesa Map</Link>
-        <button onClick={() => setDarkMode(!darkMode)} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '10px 16px', borderRadius: '12px', cursor: 'pointer', fontWeight: 600, fontSize: '13px' }}>
-          {darkMode ? '☀️ Light' : '🌙 Dark'}
-        </button>
-      </div>
-
-      {/* STATS */}
-      <div style={{ position: 'absolute', top: '90px', left: '16px', right: '16px', zIndex: 1000, display: 'flex', gap: '10px' }}>
-        {[{ label: 'Active Riders', value: riders.length, color: '#22c55e' }, { label: 'Deliveries Today', value: '12', color: '#f97316' }, { label: 'Pending', value: '3', color: '#e33124' }].map((s, i) => (
-          <div key={i} style={{ flex: 1, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)', borderRadius: '12px', padding: '12px 14px', color: 'white' }}>
-            <p style={{ fontSize: '11px', opacity: 0.7, margin: '0 0 2px' }}>{s.label}</p>
-            <p style={{ fontSize: '22px', fontWeight: 700, margin: 0, color: s.color }}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* SELECTED RIDER */}
-      {selectedRider && (
-        <div style={{ position: 'absolute', bottom: '100px', left: '16px', right: '16px', zIndex: 1000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(20px)', borderRadius: '20px', padding: '20px', color: 'white' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <div>
-              <p style={{ fontWeight: 700, fontSize: '18px', margin: '0 0 4px' }}>{selectedRider.name}</p>
-              <p style={{ opacity: 0.7, fontSize: '13px', margin: 0 }}>📱 {selectedRider.phone} · 🚲 Bicycle</p>
-              <p style={{ fontWeight: 700, color: '#22c55e', marginTop: '8px' }}>{selectedRider.deliveries} deliveries</p>
-            </div>
-            <button onClick={() => setSelectedRider(null)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer' }}>✕</button>
-          </div>
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="text-xl font-black text-red-600">baComesa</span>
+          <span className="bg-red-600 text-white text-xs px-3 py-1 rounded-full font-bold">ADMIN</span>
         </div>
-      )}
+        <div className="flex items-center gap-3">
+          <Link href="/admin/map" className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-gray-800 transition">
+            <span style={{ fontSize: '16px' }}>🗺️</span> Live Map
+          </Link>
+          <button onClick={() => signOut(auth)} className="text-gray-500 hover:text-red-600 text-sm">Logout</button>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex gap-2 mb-8 flex-wrap">
+          {[
+            { key: 'stats' as const, label: '📊 Stats' },
+            { key: 'orders' as const, label: `📦 Orders (${orders.length})` },
+            { key: 'riders' as const, label: `🚴 Riders (${riders.length})` },
+            { key: 'feedback' as const, label: `💬 Feedback (${feedback.filter(f => !f.resolved).length})` },
+          ].map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              className={`px-5 py-2.5 rounded-full text-sm font-bold transition ${activeTab === tab.key ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border'}`}
+            >{tab.label}</button>
+          ))}
+        </div>
+
+        {activeTab === 'stats' && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {[
+              { label: 'Total Visits', value: stats.visits },
+              { label: 'Today', value: stats.todayVisits },
+              { label: 'Users', value: stats.users },
+              { label: 'Products', value: stats.products },
+            ].map((s, i) => (
+              <div key={i} className="bg-white rounded-2xl shadow-sm p-6 border">
+                <p className="text-gray-500 text-sm">{s.label}</p>
+                <p className="text-3xl font-bold text-gray-900">{s.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'orders' && (
+          <div className="space-y-4">
+            {orders.length === 0 ? (
+              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">No orders yet.</div>
+            ) : (
+              orders.map((o: any) => (
+                <div key={o.id} className="bg-white rounded-2xl border p-6 shadow-sm">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <p className="font-bold text-lg">{o.productName}</p>
+                      <p className="text-sm text-gray-500">Buyer: {o.buyerName || o.buyerEmail} · 📱 {o.buyerPhone}</p>
+                      <p className="text-sm text-gray-500">Delivery: {o.deliveryAddress} · {o.deliveryLocation}</p>
+                      {o.price && <p className="text-red-600 font-bold mt-1">K{Number(o.price).toLocaleString()}</p>}
+                    </div>
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full ${
+                      o.deliveryStatus === 'delivered' ? 'bg-green-100 text-green-700' :
+                      o.deliveryStatus === 'assigned' ? 'bg-blue-100 text-blue-700' :
+                      o.deliveryStatus === 'picked_up' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {o.deliveryStatus?.replace('_', ' ') || 'pending'}
+                    </span>
+                  </div>
+
+                  {o.deliveryStatus === 'pending' && (
+                    <div className="flex gap-2 items-center flex-wrap">
+                      <span className="text-sm text-gray-500">Assign rider:</span>
+                      <select onChange={(e) => {
+                        const [id, name] = e.target.value.split('|')
+                        if (id) assignRider(o.id, id, name)
+                      }} className="border rounded-lg px-3 py-1.5 text-sm">
+                        <option value="">Select rider...</option>
+                        {riders.filter((r: any) => r.status === 'active').map((r: any) => (
+                          <option key={r.id} value={`${r.id}|${r.name}`}>{r.name} · {r.vehicle} · {r.area}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {o.deliveryStatus === 'assigned' && (
+                    <div className="flex gap-2">
+                      <span className="text-sm text-gray-500">Rider: {o.riderName}</span>
+                      <button onClick={() => updateOrderStatus(o.id, 'picked_up')} className="text-xs bg-yellow-500 text-white px-3 py-1 rounded-full">Mark Picked Up</button>
+                    </div>
+                  )}
+                  {o.deliveryStatus === 'picked_up' && (
+                    <div className="flex gap-2">
+                      <span className="text-sm text-gray-500">Rider: {o.riderName} · In transit</span>
+                      <button onClick={() => updateOrderStatus(o.id, 'delivered')} className="text-xs bg-green-500 text-white px-3 py-1 rounded-full">Mark Delivered</button>
+                    </div>
+                  )}
+                  {o.deliveryStatus === 'delivered' && (
+                    <p className="text-sm text-green-600">✅ Delivered by {o.riderName}</p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-2">{new Date(o.createdAt).toLocaleString()}</p>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {activeTab === 'riders' && (
+          <div className="space-y-4">
+            {riders.length === 0 ? (
+              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">No riders registered.</div>
+            ) : (
+              riders.map((r: any) => (
+                <div key={r.id} className="bg-white rounded-2xl border p-4 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold">{r.name}</p>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${r.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        {r.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500">📱 {r.phone} · {r.vehicle} · 📍 {r.area}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <p className="text-red-600 font-bold">K{Number(r.earnings || 0).toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">{r.deliveries || 0} deliveries</p>
+                    </div>
+                    {r.status === 'inactive' && (
+                      <button onClick={() => approveRider(r.id)} className="bg-green-500 text-white text-xs px-4 py-2 rounded-full font-bold hover:bg-green-600">
+                        ✅ Approve
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {activeTab === 'feedback' && (
+          <div className="space-y-4">
+            {feedback.length === 0 ? (
+              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">No feedback yet.</div>
+            ) : (
+              feedback.map((f: any) => (
+                <div key={f.id} className={`bg-white rounded-2xl border p-6 ${f.resolved ? 'opacity-50' : ''}`}>
+                  <div className="flex items-start justify-between mb-2">
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${f.type === 'complaint' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                      {f.type === 'complaint' ? '🚨 Complaint' : '💡 Feedback'}
+                    </span>
+                    <span className="text-xs text-gray-400">{new Date(f.createdAt).toLocaleString()}</span>
+                  </div>
+                  <p className="text-gray-800 mb-2">{f.message}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-400">{f.userEmail}</p>
+                    {!f.resolved && (
+                      <button onClick={() => resolveFeedback(f.id)} className="text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full">Mark Resolved</button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </main>
     </div>
   )
 }
