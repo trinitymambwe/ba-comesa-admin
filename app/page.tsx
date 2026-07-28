@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { auth, db } from '@/lib/firebase'
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth'
-import { collection, getDocs, query, orderBy, updateDoc, doc, limit, where } from 'firebase/firestore'
+import { collection, getDocs, query, orderBy, updateDoc, doc, limit } from 'firebase/firestore'
 
 const ADMIN_UID = 'aGp4yilLXHf26EuHV236plJZHoa2'
 
@@ -38,7 +38,7 @@ export default function AdminPage() {
     const orderSnap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(50)))
     setOrders(orderSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
 
-    const riderSnap = await getDocs(query(collection(db, 'riders'), where('status', '==', 'active')))
+    const riderSnap = await getDocs(query(collection(db, 'riders'), orderBy('createdAt', 'desc')))
     setRiders(riderSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
 
     const visitSnap = await getDocs(query(collection(db, 'visits'), limit(200)))
@@ -55,16 +55,22 @@ export default function AdminPage() {
   }
 
   const assignRider = async (orderId: string, riderId: string, riderName: string) => {
-    await updateDoc(doc(db, 'orders', orderId), {
-      riderId,
-      riderName,
-      deliveryStatus: 'assigned',
-    })
+    await updateDoc(doc(db, 'orders', orderId), { riderId, riderName, deliveryStatus: 'assigned' })
     fetchData()
   }
 
   const updateOrderStatus = async (orderId: string, status: string) => {
     await updateDoc(doc(db, 'orders', orderId), { deliveryStatus: status })
+    fetchData()
+  }
+
+  const approveRider = async (riderId: string) => {
+    await updateDoc(doc(db, 'riders', riderId), { status: 'active' })
+    fetchData()
+  }
+
+  const resolveFeedback = async (id: string) => {
+    await updateDoc(doc(db, 'feedback', id), { resolved: true })
     fetchData()
   }
 
@@ -77,11 +83,6 @@ export default function AdminPage() {
       if (result.user.uid !== ADMIN_UID) { await signOut(auth); setLoginError('Unauthorized') }
     } catch (err: any) { setLoginError(err.message) }
     setLoginLoading(false)
-  }
-
-  const resolveFeedback = async (id: string) => {
-    await updateDoc(doc(db, 'feedback', id), { resolved: true })
-    fetchData()
   }
 
   if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>
@@ -129,7 +130,6 @@ export default function AdminPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Tabs */}
         <div className="flex gap-2 mb-8 flex-wrap">
           {[
             { key: 'stats' as const, label: '📊 Stats' },
@@ -143,7 +143,6 @@ export default function AdminPage() {
           ))}
         </div>
 
-        {/* STATS */}
         {activeTab === 'stats' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             {[
@@ -160,7 +159,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ORDERS */}
         {activeTab === 'orders' && (
           <div className="space-y-4">
             {orders.length === 0 ? (
@@ -171,8 +169,8 @@ export default function AdminPage() {
                   <div className="flex items-start justify-between mb-3">
                     <div>
                       <p className="font-bold text-lg">{o.productName}</p>
-                      <p className="text-sm text-gray-500">Buyer: {o.buyerEmail}</p>
-                      <p className="text-sm text-gray-500">Seller: {o.sellerName} · 📱 {o.sellerPhone}</p>
+                      <p className="text-sm text-gray-500">Buyer: {o.buyerName || o.buyerEmail} · 📱 {o.buyerPhone}</p>
+                      <p className="text-sm text-gray-500">Delivery: {o.deliveryAddress} · {o.deliveryLocation}</p>
                       {o.price && <p className="text-red-600 font-bold mt-1">K{Number(o.price).toLocaleString()}</p>}
                     </div>
                     <span className={`text-xs font-bold px-3 py-1 rounded-full ${
@@ -185,7 +183,6 @@ export default function AdminPage() {
                     </span>
                   </div>
 
-                  {/* Assign Rider */}
                   {o.deliveryStatus === 'pending' && (
                     <div className="flex gap-2 items-center flex-wrap">
                       <span className="text-sm text-gray-500">Assign rider:</span>
@@ -194,14 +191,13 @@ export default function AdminPage() {
                         if (id) assignRider(o.id, id, name)
                       }} className="border rounded-lg px-3 py-1.5 text-sm">
                         <option value="">Select rider...</option>
-                        {riders.map((r: any) => (
+                        {riders.filter((r: any) => r.status === 'active').map((r: any) => (
                           <option key={r.id} value={`${r.id}|${r.name}`}>{r.name} · {r.vehicle} · {r.area}</option>
                         ))}
                       </select>
                     </div>
                   )}
 
-                  {/* Status updates */}
                   {o.deliveryStatus === 'assigned' && (
                     <div className="flex gap-2">
                       <span className="text-sm text-gray-500">Rider: {o.riderName}</span>
@@ -217,7 +213,6 @@ export default function AdminPage() {
                   {o.deliveryStatus === 'delivered' && (
                     <p className="text-sm text-green-600">✅ Delivered by {o.riderName}</p>
                   )}
-
                   <p className="text-xs text-gray-400 mt-2">{new Date(o.createdAt).toLocaleString()}</p>
                 </div>
               ))
@@ -225,21 +220,32 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* RIDERS */}
         {activeTab === 'riders' && (
           <div className="space-y-4">
             {riders.length === 0 ? (
-              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">No active riders.</div>
+              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">No riders registered.</div>
             ) : (
               riders.map((r: any) => (
                 <div key={r.id} className="bg-white rounded-2xl border p-4 flex items-center justify-between">
                   <div>
-                    <p className="font-bold">{r.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold">{r.name}</p>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${r.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        {r.status}
+                      </span>
+                    </div>
                     <p className="text-sm text-gray-500">📱 {r.phone} · {r.vehicle} · 📍 {r.area}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-red-600 font-bold">K{Number(r.earnings || 0).toLocaleString()}</p>
-                    <p className="text-xs text-gray-400">{r.deliveries || 0} deliveries</p>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <p className="text-red-600 font-bold">K{Number(r.earnings || 0).toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">{r.deliveries || 0} deliveries</p>
+                    </div>
+                    {r.status === 'inactive' && (
+                      <button onClick={() => approveRider(r.id)} className="bg-green-500 text-white text-xs px-4 py-2 rounded-full font-bold hover:bg-green-600">
+                        ✅ Approve
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
@@ -247,7 +253,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* FEEDBACK */}
         {activeTab === 'feedback' && (
           <div className="space-y-4">
             {feedback.length === 0 ? (
