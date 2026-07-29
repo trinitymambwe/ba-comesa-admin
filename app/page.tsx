@@ -4,6 +4,11 @@ import { useState, useEffect } from 'react'
 import { auth, db } from '@/lib/firebase'
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth'
 import { collection, getDocs, query, orderBy, updateDoc, doc, limit } from 'firebase/firestore'
+import Link from 'next/link'
+import {
+  BarChart3, Package, Bike, MessageSquare, Map, LogOut, TrendingUp,
+  Users, ShoppingBag, Star, CheckCircle, XCircle, Clock, UserCheck
+} from 'lucide-react'
 
 const ADMIN_UID = 'aGp4yilLXHf26EuHV236plJZHoa2'
 
@@ -126,33 +131,45 @@ export default function AdminPage() {
           <span className="text-xl font-black text-red-600">baComesa</span>
           <span className="bg-red-600 text-white text-xs px-3 py-1 rounded-full font-bold">ADMIN</span>
         </div>
-        <button onClick={() => signOut(auth)} className="text-gray-500 hover:text-red-600 text-sm">Logout</button>
+        <div className="flex items-center gap-3">
+          <Link href="/admin/map" className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-gray-800 transition">
+            <Map size={16} /> Live Map
+          </Link>
+          <button onClick={() => signOut(auth)} className="text-gray-500 hover:text-red-600 text-sm flex items-center gap-1">
+            <LogOut size={14} /> Logout
+          </button>
+        </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="flex gap-2 mb-8 flex-wrap">
           {[
-            { key: 'stats' as const, label: '📊 Stats' },
-            { key: 'orders' as const, label: `📦 Orders (${orders.length})` },
-            { key: 'riders' as const, label: `🚴 Riders (${riders.length})` },
-            { key: 'feedback' as const, label: `💬 Feedback (${feedback.filter(f => !f.resolved).length})` },
+            { key: 'stats' as const, label: 'Stats', icon: BarChart3 },
+            { key: 'orders' as const, label: `Orders (${orders.length})`, icon: Package },
+            { key: 'riders' as const, label: `Riders (${riders.length})`, icon: Bike },
+            { key: 'feedback' as const, label: `Feedback (${feedback.filter(f => !f.resolved).length})`, icon: MessageSquare },
           ].map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`px-5 py-2.5 rounded-full text-sm font-bold transition ${activeTab === tab.key ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border'}`}
-            >{tab.label}</button>
+              className={`px-5 py-2.5 rounded-full text-sm font-bold transition flex items-center gap-2 ${activeTab === tab.key ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border'}`}
+            >
+              <tab.icon size={16} /> {tab.label}
+            </button>
           ))}
         </div>
 
         {activeTab === 'stats' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             {[
-              { label: 'Total Visits', value: stats.visits },
-              { label: 'Today', value: stats.todayVisits },
-              { label: 'Users', value: stats.users },
-              { label: 'Products', value: stats.products },
+              { label: 'Total Visits', value: stats.visits, icon: TrendingUp },
+              { label: 'Today', value: stats.todayVisits, icon: Clock },
+              { label: 'Users', value: stats.users, icon: Users },
+              { label: 'Products', value: stats.products, icon: ShoppingBag },
             ].map((s, i) => (
               <div key={i} className="bg-white rounded-2xl shadow-sm p-6 border">
-                <p className="text-gray-500 text-sm">{s.label}</p>
+                <div className="flex items-center gap-2 text-gray-400 mb-2">
+                  <s.icon size={16} />
+                  <p className="text-sm">{s.label}</p>
+                </div>
                 <p className="text-3xl font-bold text-gray-900">{s.value}</p>
               </div>
             ))}
@@ -162,23 +179,30 @@ export default function AdminPage() {
         {activeTab === 'orders' && (
           <div className="space-y-4">
             {orders.length === 0 ? (
-              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">No orders yet.</div>
+              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">
+                <Package size={32} className="mx-auto mb-2 opacity-30" />
+                No orders yet.
+              </div>
             ) : (
               orders.map((o: any) => (
                 <div key={o.id} className="bg-white rounded-2xl border p-6 shadow-sm">
                   <div className="flex items-start justify-between mb-3">
                     <div>
                       <p className="font-bold text-lg">{o.productName}</p>
-                      <p className="text-sm text-gray-500">Buyer: {o.buyerName || o.buyerEmail} · 📱 {o.buyerPhone}</p>
+                      <p className="text-sm text-gray-500">Buyer: {o.buyerName || o.buyerEmail} · {o.buyerPhone}</p>
                       <p className="text-sm text-gray-500">Delivery: {o.deliveryAddress} · {o.deliveryLocation}</p>
                       {o.price && <p className="text-red-600 font-bold mt-1">K{Number(o.price).toLocaleString()}</p>}
                     </div>
-                    <span className={`text-xs font-bold px-3 py-1 rounded-full ${
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1 ${
                       o.deliveryStatus === 'delivered' ? 'bg-green-100 text-green-700' :
                       o.deliveryStatus === 'assigned' ? 'bg-blue-100 text-blue-700' :
                       o.deliveryStatus === 'picked_up' ? 'bg-yellow-100 text-yellow-700' :
                       'bg-gray-100 text-gray-600'
                     }`}>
+                      {o.deliveryStatus === 'pending' && <Clock size={12} />}
+                      {o.deliveryStatus === 'assigned' && <UserCheck size={12} />}
+                      {o.deliveryStatus === 'picked_up' && <Bike size={12} />}
+                      {o.deliveryStatus === 'delivered' && <CheckCircle size={12} />}
                       {o.deliveryStatus?.replace('_', ' ') || 'pending'}
                     </span>
                   </div>
@@ -211,7 +235,9 @@ export default function AdminPage() {
                     </div>
                   )}
                   {o.deliveryStatus === 'delivered' && (
-                    <p className="text-sm text-green-600">✅ Delivered by {o.riderName}</p>
+                    <p className="text-sm text-green-600 flex items-center gap-1">
+                      <CheckCircle size={14} /> Delivered by {o.riderName}
+                    </p>
                   )}
                   <p className="text-xs text-gray-400 mt-2">{new Date(o.createdAt).toLocaleString()}</p>
                 </div>
@@ -223,18 +249,22 @@ export default function AdminPage() {
         {activeTab === 'riders' && (
           <div className="space-y-4">
             {riders.length === 0 ? (
-              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">No riders registered.</div>
+              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">
+                <Bike size={32} className="mx-auto mb-2 opacity-30" />
+                No riders registered.
+              </div>
             ) : (
               riders.map((r: any) => (
                 <div key={r.id} className="bg-white rounded-2xl border p-4 flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="font-bold">{r.name}</p>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${r.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded-full flex items-center gap-1 ${r.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        {r.status === 'active' ? <CheckCircle size={10} /> : <Clock size={10} />}
                         {r.status}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500">📱 {r.phone} · {r.vehicle} · 📍 {r.area}</p>
+                    <p className="text-sm text-gray-500">{r.phone} · {r.vehicle} · {r.area}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
@@ -242,8 +272,8 @@ export default function AdminPage() {
                       <p className="text-xs text-gray-400">{r.deliveries || 0} deliveries</p>
                     </div>
                     {r.status === 'inactive' && (
-                      <button onClick={() => approveRider(r.id)} className="bg-green-500 text-white text-xs px-4 py-2 rounded-full font-bold hover:bg-green-600">
-                        ✅ Approve
+                      <button onClick={() => approveRider(r.id)} className="bg-green-500 text-white text-xs px-4 py-2 rounded-full font-bold hover:bg-green-600 flex items-center gap-1">
+                        <CheckCircle size={12} /> Approve
                       </button>
                     )}
                   </div>
@@ -256,13 +286,17 @@ export default function AdminPage() {
         {activeTab === 'feedback' && (
           <div className="space-y-4">
             {feedback.length === 0 ? (
-              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">No feedback yet.</div>
+              <div className="bg-white rounded-2xl border p-8 text-center text-gray-400">
+                <MessageSquare size={32} className="mx-auto mb-2 opacity-30" />
+                No feedback yet.
+              </div>
             ) : (
               feedback.map((f: any) => (
                 <div key={f.id} className={`bg-white rounded-2xl border p-6 ${f.resolved ? 'opacity-50' : ''}`}>
                   <div className="flex items-start justify-between mb-2">
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${f.type === 'complaint' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                      {f.type === 'complaint' ? '🚨 Complaint' : '💡 Feedback'}
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 ${f.type === 'complaint' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                      {f.type === 'complaint' ? <XCircle size={10} /> : <MessageSquare size={10} />}
+                      {f.type === 'complaint' ? 'Complaint' : 'Feedback'}
                     </span>
                     <span className="text-xs text-gray-400">{new Date(f.createdAt).toLocaleString()}</span>
                   </div>
@@ -270,7 +304,9 @@ export default function AdminPage() {
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-gray-400">{f.userEmail}</p>
                     {!f.resolved && (
-                      <button onClick={() => resolveFeedback(f.id)} className="text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full">Mark Resolved</button>
+                      <button onClick={() => resolveFeedback(f.id)} className="text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full flex items-center gap-1">
+                        <CheckCircle size={10} /> Mark Resolved
+                      </button>
                     )}
                   </div>
                 </div>
