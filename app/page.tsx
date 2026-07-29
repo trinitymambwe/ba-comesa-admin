@@ -130,15 +130,23 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="text-xl font-black text-red-600">baComesa</span>
-          <span className="bg-red-600 text-white text-xs px-3 py-1 rounded-full font-bold">ADMIN</span>
-        </div>
-        <button onClick={() => signOut(auth)} className="text-gray-500 hover:text-red-600 text-sm flex items-center gap-1">
-          <LogOut size={14} /> Logout
-        </button>
-      </header>
+    <header className="bg-white border-b px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
+  <div className="flex items-center gap-3">
+    <span className="text-xl font-black text-red-600">baComesa</span>
+    <span className="bg-red-600 text-white text-xs px-3 py-1 rounded-full font-bold">ADMIN</span>
+  </div>
+  <div className="flex items-center gap-3">
+    <Link
+      href="/admin/live-map"
+      className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-red-700 transition"
+    >
+      <Map size={16} /> Live Map
+    </Link>
+    <button onClick={() => signOut(auth)} className="text-gray-500 hover:text-red-600 text-sm flex items-center gap-1">
+      <LogOut size={14} /> Logout
+    </button>
+  </div>
+</header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="flex gap-2 mb-8 flex-wrap">
