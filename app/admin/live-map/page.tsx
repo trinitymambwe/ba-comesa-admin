@@ -5,21 +5,14 @@ import { db } from '@/lib/firebase'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import Link from 'next/link'
 
-// ==================== Animated Marker Icon ====================
-function createVehicleIcon(vehicle: string, pulse: boolean = true) {
-  const icon = vehicle === 'motorbike' ? '🏍️' : '🚲'
-  const pulseStyle = pulse ? 'pulse' : ''
+function createVehicleIcon(vehicle: string) {
+  const emoji = vehicle === 'motorbike' ? '🏍️' : '🚲'
   return `
-    <div class="vehicle-marker ${pulseStyle}" style="
-      font-size: 40px;
-      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
-      transition: transform 0.3s;
-    ">${icon}</div>
+    <div style="font-size:40px; filter:drop-shadow(0 4px 8px rgba(0,0,0,0.5)); animation: vehiclePulse 1.5s infinite;">
+      ${emoji}
+    </div>
     <style>
-      .vehicle-marker.pulse {
-        animation: vehicle-pulse 1.5s infinite;
-      }
-      @keyframes vehicle-pulse {
+      @keyframes vehiclePulse {
         0% { transform: scale(1); opacity: 0.9; }
         50% { transform: scale(1.15); opacity: 1; }
         100% { transform: scale(1); opacity: 0.9; }
@@ -28,14 +21,12 @@ function createVehicleIcon(vehicle: string, pulse: boolean = true) {
   `
 }
 
-// ==================== Map Component ====================
 export default function LiveMapPage() {
   const mapRef = useRef<HTMLDivElement>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [riders, setRiders] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
 
-  // Fetch riders and orders
   useEffect(() => {
     const fetchData = async () => {
       const riderSnap = await getDocs(query(collection(db, 'riders'), where('status', '==', 'active')))
@@ -46,7 +37,6 @@ export default function LiveMapPage() {
     fetchData()
   }, [])
 
-  // Load Leaflet
   useEffect(() => {
     const link = document.createElement('link')
     link.rel = 'stylesheet'
@@ -59,7 +49,6 @@ export default function LiveMapPage() {
     document.head.appendChild(script)
   }, [])
 
-  // Initialize map when Leaflet and data are ready
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return
     const L = (window as any).L
@@ -70,33 +59,28 @@ export default function LiveMapPage() {
       zoomControl: false,
     })
 
-    // Clean road tile layer
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
       subdomains: 'abcd',
       maxZoom: 19,
     }).addTo(map)
 
-    // Add zoom control in a nicer position
     L.control.zoom({ position: 'bottomright' }).addTo(map)
 
-    // ============ Riders with large animated icons ============
     riders.forEach((rider) => {
       const vehicle = rider.vehicle || 'bicycle'
       const icon = L.divIcon({
-        html: createVehicleIcon(vehicle, true),
+        html: createVehicleIcon(vehicle),
         iconSize: [50, 50],
         iconAnchor: [25, 25],
         className: '',
       })
 
-      // Simulate a route for each rider (real data later)
       const startLat = -15.3875 + Math.random() * 0.04
       const startLng = 28.3228 + Math.random() * 0.04
       const endLat = -15.4167 + Math.random() * 0.04
       const endLng = 28.2833 + Math.random() * 0.04
 
-      // Draw delivery route line
       L.polyline([[startLat, startLng], [endLat, endLng]], {
         color: '#e33124',
         weight: 4,
@@ -104,37 +88,30 @@ export default function LiveMapPage() {
         dashArray: '10, 10',
       }).addTo(map)
 
-      // Place marker at start
       const marker = L.marker([startLat, startLng], { icon }).addTo(map)
-      marker.bindPopup(`<b>${rider.name}</b><br/>${vehicle} · Active<br/>Deliveries: ${rider.deliveries || 0}`)
+      marker.bindPopup(`<b>${rider.name}</b><br/>${vehicle} · Active`)
 
-      // Simulate movement: animate marker along the route
       let step = 0
       const steps = 100
       const latDiff = endLat - startLat
       const lngDiff = endLng - startLng
-
       setInterval(() => {
         step = (step + 1) % steps
         const progress = step / steps
-        const newLat = startLat + latDiff * progress
-        const newLng = startLng + lngDiff * progress
-        marker.setLatLng([newLat, newLng])
+        marker.setLatLng([startLat + latDiff * progress, startLng + lngDiff * progress])
       }, 100)
     })
 
-    // ============ Order pick-up/drop-off markers ============
     orders.forEach((order) => {
       if (order.deliveryLat && order.deliveryLng) {
-        const icon = L.divIcon({
-          html: `<div style="font-size:24px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">📍</div>`,
-          iconSize: [30, 30],
-          iconAnchor: [15, 30],
-          className: '',
-        })
-        L.marker([order.deliveryLat, order.deliveryLng], { icon })
-          .addTo(map)
-          .bindPopup(`<b>${order.productName}</b><br/>Buyer: ${order.buyerName || order.buyerEmail}`)
+        L.marker([order.deliveryLat, order.deliveryLng], {
+          icon: L.divIcon({
+            html: '<div style="font-size:24px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5))">📍</div>',
+            iconSize: [30, 30],
+            iconAnchor: [15, 30],
+            className: '',
+          }),
+        }).addTo(map).bindPopup(`<b>${order.productName}</b><br/>${order.buyerName || order.buyerEmail}`)
       }
     })
 
@@ -143,10 +120,7 @@ export default function LiveMapPage() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-      {/* Map */}
       <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
-
-      {/* Top bar */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000,
         background: 'linear-gradient(180deg, rgba(255,255,255,0.9) 0%, transparent 100%)',
@@ -158,8 +132,6 @@ export default function LiveMapPage() {
         </Link>
         <span style={{ fontWeight: 700, color: '#e33124' }}>Live Map</span>
       </div>
-
-      {/* Floating stats */}
       <div style={{
         position: 'absolute', bottom: '30px', left: '20px', right: '20px', zIndex: 1000,
         display: 'flex', gap: '10px', justifyContent: 'center',
