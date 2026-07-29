@@ -5,7 +5,6 @@ import { db } from '@/lib/firebase'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import Link from 'next/link'
 
-// Lucide SVG icons as strings (for Leaflet divIcon)
 const bikeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="17" r="2"/><circle cx="15" cy="17" r="2"/><path d="M5 17V7h4l3-4h3v5m4 9v-4l-2-4H9"/></svg>`
 const motorbikeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="17" r="2"/><circle cx="19" cy="17" r="2"/><path d="M15 5H3v12h4m8-12l4 6h2v6h-2M7 17h10"/></svg>`
 const carSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M5 17a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1l2-3h8l2 3h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2m-9-7h4"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>`
@@ -67,8 +66,15 @@ export default function LiveMapPage() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(map)
 
-    riders.forEach((rider) => {
-      if (rider.lat == null || rider.lng == null) return
+    // Only show riders online in the last 5 minutes
+    const fiveMinAgo = Date.now() - 5 * 60 * 1000
+    const onlineRiders = riders.filter((r: any) => {
+      if (!r.lat || !r.lng) return false
+      if (!r.lastSeen) return false
+      return new Date(r.lastSeen).getTime() > fiveMinAgo
+    })
+
+    onlineRiders.forEach((rider) => {
       const vehicle = rider.vehicle || 'bicycle'
       L.marker([rider.lat, rider.lng], {
         icon: L.divIcon({ html: riderIconHtml(vehicle), iconSize: [40, 40], iconAnchor: [20, 20], className: '' }),
