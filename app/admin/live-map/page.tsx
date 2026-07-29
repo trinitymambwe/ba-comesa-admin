@@ -1,30 +1,19 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { db } from '@/lib/firebase'
 import { collection, getDocs, query, where } from 'firebase/firestore'
+import { GoogleMap, LoadScript, Marker, Polyline, InfoWindow } from '@react-google-maps/api'
 import Link from 'next/link'
 
-const riderSvg = (type: string) => {
-  const emoji = type === 'motorbike' ? '🏍️' : type === 'car' ? '🚗' : '🚲'
-  return `
-<svg width="44" height="44" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="12" cy="12" r="11" fill="#22c55e" stroke="white" stroke-width="2"/>
-  <text x="12" y="17" text-anchor="middle" fill="white" font-size="15">${emoji}</text>
-</svg>`
-}
-
-const orderSvg = `
-<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="12" cy="12" r="11" fill="#e33124" stroke="white" stroke-width="2"/>
-  <text x="12" y="17" text-anchor="middle" fill="white" font-size="13">📦</text>
-</svg>`
+const containerStyle = { width: '100vw', height: '100vh' }
+const center = { lat: -15.4082, lng: 28.2871 }
 
 export default function LiveMapPage() {
-  const mapRef = useRef<HTMLDivElement>(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
   const [riders, setRiders] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
+  const [selectedRider, setSelectedRider] = useState<any>(null)
+  const [selectedOrder, setSelectedOrder] = useState<any>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -36,78 +25,97 @@ export default function LiveMapPage() {
     fetchData()
   }, [])
 
-  useEffect(() => {
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = 'https://unpkg.com/leaflet@1.7.1/dist/leaflet.css'
-    document.head.appendChild(link)
+  const riderSvg = (type: string) => ({
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="11" fill="#22c55e" stroke="white" stroke-width="2"/>
+        <text x="12" y="17" text-anchor="middle" fill="white" font-size="15">${type === 'motorbike' ? '🏍️' : type === 'car' ? '🚗' : '🚲'}</text>
+      </svg>
+    `)}`,
+    scaledSize: { width: 44, height: 44 } as google.maps.Size,
+    anchor: { x: 22, y: 22 } as google.maps.Point,
+  })
 
-    const script = document.createElement('script')
-    script.src = 'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js'
-    script.onload = () => setMapLoaded(true)
-    document.head.appendChild(script)
-  }, [])
-
-  useEffect(() => {
-    if (!mapLoaded || !mapRef.current) return
-    const L = (window as any).L
-
-    const map = L.map(mapRef.current, { center: [-15.4082, 28.2871], zoom: 15, zoomControl: false })
-
-    // SATELLITE VIEW
-    L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`, {
-      attribution: '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> contributors',
-      tileSize: 512,
-      zoomOffset: -1,
-      maxZoom: 19,
-    }).addTo(map)
-
-    L.control.zoom({ position: 'bottomright' }).addTo(map)
-
-    // Green route lines
-    orders.forEach((order) => {
-      if (!order.deliveryLat || !order.deliveryLng) return
-      const rider = riders.find(r => r.id === order.riderId)
-      if (rider && rider.lat && rider.lng) {
-        L.polyline([[rider.lat, rider.lng], [order.deliveryLat, order.deliveryLng]], {
-          color: '#22c55e', weight: 4, opacity: 0.8,
-        }).addTo(map)
-      }
-    })
-
-    // Rider markers with vehicle type
-    riders.forEach((rider) => {
-      if (rider.lat == null || rider.lng == null) return
-      const vehicleType = (rider.vehicle || 'bicycle').toLowerCase()
-      L.marker([rider.lat, rider.lng], {
-        icon: L.divIcon({ html: riderSvg(vehicleType), iconSize: [44, 44], iconAnchor: [22, 22], className: '' }),
-      }).addTo(map).bindPopup(`<b>${rider.name}</b><br/>${vehicleType} · Active`)
-    })
-
-    // Order markers
-    orders.forEach((order) => {
-      if (order.deliveryLat == null || order.deliveryLng == null) return
-      L.marker([order.deliveryLat, order.deliveryLng], {
-        icon: L.divIcon({ html: orderSvg, iconSize: [40, 40], iconAnchor: [20, 20], className: '' }),
-      }).addTo(map).bindPopup(`<b>${order.productName}</b><br/>${order.buyerName || order.buyerEmail}`)
-    })
-
-    const allLatLngs = [
-      ...riders.filter(r => r.lat && r.lng).map(r => [r.lat, r.lng]),
-      ...orders.filter(o => o.deliveryLat && o.deliveryLng).map(o => [o.deliveryLat, o.deliveryLng]),
-    ]
-    if (allLatLngs.length > 0) map.fitBounds(L.latLngBounds(allLatLngs), { padding: [50, 50] })
-
-    return () => map.remove()
-  }, [mapLoaded, riders, orders])
+  const orderSvg = {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="11" fill="#e33124" stroke="white" stroke-width="2"/>
+        <text x="12" y="17" text-anchor="middle" fill="white" font-size="13">📦</text>
+      </svg>
+    `)}`,
+    scaledSize: { width: 36, height: 36 } as google.maps.Size,
+    anchor: { x: 18, y: 18 } as google.maps.Point,
+  }
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+    <LoadScript googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY!}>
+      <GoogleMap mapContainerStyle={containerStyle} center={center} zoom={14}
+        options={{ mapTypeId: 'satellite', streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}>
+
+        {/* Route lines */}
+        {orders.map((order) => {
+          const rider = riders.find(r => r.id === order.riderId)
+          if (!rider?.lat || !rider?.lng || !order.deliveryLat || !order.deliveryLng) return null
+          return (
+            <Polyline key={order.id}
+              path={[{ lat: rider.lat, lng: rider.lng }, { lat: order.deliveryLat, lng: order.deliveryLng }]}
+              options={{ strokeColor: '#22c55e', strokeWeight: 4, strokeOpacity: 0.8 }}
+            />
+          )
+        })}
+
+        {/* Rider markers */}
+        {riders.map((rider) => {
+          if (!rider.lat || !rider.lng) return null
+          return (
+            <Marker key={rider.id} position={{ lat: rider.lat, lng: rider.lng }}
+              icon={riderSvg(rider.vehicle || 'bicycle')}
+              onClick={() => { setSelectedRider(rider); setSelectedOrder(null) }}
+            />
+          )
+        })}
+
+        {/* Order markers */}
+        {orders.map((order) => {
+          if (!order.deliveryLat || !order.deliveryLng) return null
+          return (
+            <Marker key={order.id} position={{ lat: order.deliveryLat, lng: order.deliveryLng }}
+              icon={orderSvg}
+              onClick={() => { setSelectedOrder(order); setSelectedRider(null) }}
+            />
+          )
+        })}
+
+        {/* Rider InfoWindow */}
+        {selectedRider && (
+          <InfoWindow position={{ lat: selectedRider.lat, lng: selectedRider.lng }} onCloseClick={() => setSelectedRider(null)}>
+            <div style={{ color: '#333', fontSize: '13px' }}>
+              <p style={{ fontWeight: 700, margin: '0 0 4px' }}>{selectedRider.name}</p>
+              <p style={{ margin: 0 }}>{selectedRider.vehicle || 'Bicycle'} · {selectedRider.phone || ''}</p>
+              <p style={{ margin: 0, color: '#22c55e', fontWeight: 700 }}>Active</p>
+            </div>
+          </InfoWindow>
+        )}
+
+        {/* Order InfoWindow */}
+        {selectedOrder && (
+          <InfoWindow position={{ lat: selectedOrder.deliveryLat, lng: selectedOrder.deliveryLng }} onCloseClick={() => setSelectedOrder(null)}>
+            <div style={{ color: '#333', fontSize: '13px' }}>
+              <p style={{ fontWeight: 700, margin: '0 0 4px' }}>{selectedOrder.productName}</p>
+              <p style={{ margin: 0 }}>{selectedOrder.buyerName || selectedOrder.buyerEmail}</p>
+              <p style={{ margin: 0, color: '#e33124', fontWeight: 700 }}>{selectedOrder.deliveryStatus?.replace('_', ' ')}</p>
+            </div>
+          </InfoWindow>
+        )}
+      </GoogleMap>
+
+      {/* Top bar */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, background: 'linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%)', padding: '16px 20px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Link href="/" style={{ color: 'white', textDecoration: 'none', fontWeight: 700, fontSize: '18px' }}>← Dashboard</Link>
         <span style={{ fontWeight: 700, color: '#22c55e' }}>Live Map</span>
       </div>
+
+      {/* Bottom stats */}
       <div style={{ position: 'absolute', bottom: '30px', left: '20px', right: '20px', zIndex: 1000, display: 'flex', gap: '10px', justifyContent: 'center' }}>
         <div style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)', borderRadius: '20px', padding: '12px 20px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', textAlign: 'center' }}>
           <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', margin: 0 }}>Active Riders</p>
@@ -118,6 +126,6 @@ export default function LiveMapPage() {
           <p style={{ fontSize: '24px', fontWeight: 700, color: '#e33124', margin: 0 }}>{orders.length}</p>
         </div>
       </div>
-    </div>
+    </LoadScript>
   )
 }
