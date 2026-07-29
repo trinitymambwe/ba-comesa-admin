@@ -5,20 +5,10 @@ import { db } from '@/lib/firebase'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import Link from 'next/link'
 
+// Real vehicle icon – no animation
 function createVehicleIcon(vehicle: string) {
   const emoji = vehicle === 'motorbike' ? '🏍️' : '🚲'
-  return `
-    <div style="font-size:40px; filter:drop-shadow(0 4px 8px rgba(0,0,0,0.5)); animation: vehiclePulse 1.5s infinite;">
-      ${emoji}
-    </div>
-    <style>
-      @keyframes vehiclePulse {
-        0% { transform: scale(1); opacity: 0.9; }
-        50% { transform: scale(1.15); opacity: 1; }
-        100% { transform: scale(1); opacity: 0.9; }
-      }
-    </style>
-  `
+  return `<div style="font-size:36px; filter:drop-shadow(0 2px 6px rgba(0,0,0,0.4))">${emoji}</div>`
 }
 
 export default function LiveMapPage() {
@@ -27,6 +17,7 @@ export default function LiveMapPage() {
   const [riders, setRiders] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
 
+  // Fetch REAL active riders and active orders
   useEffect(() => {
     const fetchData = async () => {
       const riderSnap = await getDocs(query(collection(db, 'riders'), where('status', '==', 'active')))
@@ -37,6 +28,7 @@ export default function LiveMapPage() {
     fetchData()
   }, [])
 
+  // Load Leaflet
   useEffect(() => {
     const link = document.createElement('link')
     link.rel = 'stylesheet'
@@ -49,6 +41,7 @@ export default function LiveMapPage() {
     document.head.appendChild(script)
   }, [])
 
+  // Build map with REAL data only
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return
     const L = (window as any).L
@@ -59,6 +52,7 @@ export default function LiveMapPage() {
       zoomControl: false,
     })
 
+    // Clean tile layer
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
       subdomains: 'abcd',
@@ -67,53 +61,45 @@ export default function LiveMapPage() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(map)
 
+    // REAL rider markers – only if they have lat/lng in their profile
     riders.forEach((rider) => {
+      if (rider.lat == null || rider.lng == null) return   // skip without coordinates
+
       const vehicle = rider.vehicle || 'bicycle'
       const icon = L.divIcon({
         html: createVehicleIcon(vehicle),
-        iconSize: [50, 50],
-        iconAnchor: [25, 25],
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
         className: '',
       })
 
-      const startLat = -15.3875 + Math.random() * 0.04
-      const startLng = 28.3228 + Math.random() * 0.04
-      const endLat = -15.4167 + Math.random() * 0.04
-      const endLng = 28.2833 + Math.random() * 0.04
-
-      L.polyline([[startLat, startLng], [endLat, endLng]], {
-        color: '#e33124',
-        weight: 4,
-        opacity: 0.6,
-        dashArray: '10, 10',
-      }).addTo(map)
-
-      const marker = L.marker([startLat, startLng], { icon }).addTo(map)
+      const marker = L.marker([rider.lat, rider.lng], { icon }).addTo(map)
       marker.bindPopup(`<b>${rider.name}</b><br/>${vehicle} · Active`)
-
-      let step = 0
-      const steps = 100
-      const latDiff = endLat - startLat
-      const lngDiff = endLng - startLng
-      setInterval(() => {
-        step = (step + 1) % steps
-        const progress = step / steps
-        marker.setLatLng([startLat + latDiff * progress, startLng + lngDiff * progress])
-      }, 100)
     })
 
+    // REAL order markers – only if deliveryLat/deliveryLng exist
     orders.forEach((order) => {
-      if (order.deliveryLat && order.deliveryLng) {
-        L.marker([order.deliveryLat, order.deliveryLng], {
-          icon: L.divIcon({
-            html: '<div style="font-size:24px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5))">📍</div>',
-            iconSize: [30, 30],
-            iconAnchor: [15, 30],
-            className: '',
-          }),
-        }).addTo(map).bindPopup(`<b>${order.productName}</b><br/>${order.buyerName || order.buyerEmail}`)
-      }
+      if (order.deliveryLat == null || order.deliveryLng == null) return
+
+      L.marker([order.deliveryLat, order.deliveryLng], {
+        icon: L.divIcon({
+          html: '<div style="font-size:24px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5))">📍</div>',
+          iconSize: [30, 30],
+          iconAnchor: [15, 30],
+          className: '',
+        }),
+      }).addTo(map).bindPopup(`<b>${order.productName}</b><br/>${order.buyerName || order.buyerEmail}`)
     })
+
+    // Fit map to markers if any exist
+    const allLatLngs = [
+      ...riders.filter(r => r.lat && r.lng).map(r => [r.lat, r.lng]),
+      ...orders.filter(o => o.deliveryLat && o.deliveryLng).map(o => [o.deliveryLat, o.deliveryLng]),
+    ]
+    if (allLatLngs.length > 0) {
+      const bounds = L.latLngBounds(allLatLngs)
+      map.fitBounds(bounds, { padding: [30, 30] })
+    }
 
     return () => map.remove()
   }, [mapLoaded, riders, orders])
