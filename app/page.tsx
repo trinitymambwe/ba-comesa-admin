@@ -7,11 +7,125 @@ import { collection, getDocs, query, orderBy, updateDoc, doc, limit } from 'fire
 import Link from 'next/link'
 import {
   BarChart3, Package, Bike, MessageSquare, Map, LogOut, TrendingUp,
-  Users, ShoppingBag, Star, CheckCircle, XCircle, Clock, UserCheck
+  Users, ShoppingBag, Star, CheckCircle, XCircle, Clock, UserCheck, MapPin
 } from 'lucide-react'
 
 const ADMIN_UID = 'aGp4yilLXHf26EuHV236plJZHoa2'
 
+// ---------- Map Modal Component ----------
+function RiderMapModal({
+  orders,
+  riders,
+  onAssign,
+  onClose,
+}: {
+  orders: any[]
+  riders: any[]
+  onAssign: (orderId: string, riderId: string, riderName: string) => void
+  onClose: () => void
+}) {
+  const mapRef = useRef<HTMLDivElement>(null)
+  const [mapLoaded, setMapLoaded] = useState(false)
+
+  useEffect(() => {
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = 'https://unpkg.com/leaflet@1.7.1/dist/leaflet.css'
+    document.head.appendChild(link)
+
+    const script = document.createElement('script')
+    script.src = 'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js'
+    script.onload = () => setMapLoaded(true)
+    document.head.appendChild(script)
+
+    return () => {
+      // cleanup link/script if needed (optional)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current) return
+    const L = (window as any).L
+    const map = L.map(mapRef.current).setView([-15.4082, 28.2871], 13)
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map)
+
+    // Rider markers
+    const riderIcon = L.divIcon({
+      html: `<div style="background:#e33124;color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid white;box-shadow:0 2px 10px rgba(0,0,0,0.3)">🚴</div>`,
+      iconSize: [32, 32],
+      className: '',
+    })
+
+    riders.forEach((r: any) => {
+      // If rider has lat/lng from profile, use those; otherwise simulate around Lusaka
+      const lat = r.lat || -15.4082 + (Math.random() * 0.04 - 0.02)
+      const lng = r.lng || 28.2871 + (Math.random() * 0.04 - 0.02)
+      const marker = L.marker([lat, lng], { icon: riderIcon }).addTo(map)
+      marker.bindPopup(`<b>${r.name}</b><br/>${r.vehicle || 'Bicycle'} · ${r.area || ''}`)
+      marker.on('click', () => {
+        // Clicking a rider assigns the first pending order in the list
+        const pendingOrder = orders.find((o: any) => o.deliveryStatus === 'pending')
+        if (pendingOrder) {
+          onAssign(pendingOrder.id, r.id, r.name)
+          map.closePopup()
+        } else {
+          alert('No pending orders to assign.')
+        }
+      })
+    })
+
+    // Customer locations
+    const customerIcon = L.divIcon({
+      html: `<div style="background:#22c55e;color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid white;box-shadow:0 2px 10px rgba(0,0,0,0.3)">📍</div>`,
+      iconSize: [32, 32],
+      className: '',
+    })
+
+    orders
+      .filter((o: any) => o.deliveryStatus === 'pending' && o.deliveryLat && o.deliveryLng)
+      .forEach((o: any) => {
+        L.marker([o.deliveryLat, o.deliveryLng], { icon: customerIcon })
+          .addTo(map)
+          .bindPopup(`<b>${o.productName}</b><br/>${o.buyerName || o.buyerEmail}`)
+      })
+
+    // Fit bounds to all markers if there are any
+    const allLatLngs = [
+      ...riders.map((r: any) => [r.lat || -15.4082, r.lng || 28.2871]),
+      ...orders
+        .filter((o: any) => o.deliveryLat && o.deliveryLng)
+        .map((o: any) => [o.deliveryLat, o.deliveryLng]),
+    ]
+    if (allLatLngs.length > 0) {
+      const bounds = L.latLngBounds(allLatLngs)
+      map.fitBounds(bounds, { padding: [30, 30] })
+    }
+
+    return () => map.remove()
+  }, [mapLoaded, riders, orders])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ backgroundColor: '#1a1a2e', color: 'white', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <MapPin size={18} color="#e33124" /> Select a rider from the map
+        </span>
+        <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+      </div>
+      <div ref={mapRef} style={{ flex: 1 }} />
+      <div style={{ backgroundColor: '#1a1a2e', color: 'rgba(255,255,255,0.7)', padding: '12px 16px', textAlign: 'center', fontSize: '13px' }}>
+        Tap a rider to assign the pending order
+      </div>
+    </div>
+  )
+}
+
+// ---------- Main Admin Page ----------
 export default function AdminPage() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -25,6 +139,7 @@ export default function AdminPage() {
   const [riders, setRiders] = useState<any[]>([])
   const [stats, setStats] = useState({ visits: 0, todayVisits: 0, users: 0, products: 0 })
   const [activeTab, setActiveTab] = useState<'stats' | 'orders' | 'feedback' | 'riders'>('stats')
+  const [showMapModal, setShowMapModal] = useState(false)
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false) })
@@ -89,6 +204,10 @@ export default function AdminPage() {
     } catch (err: any) { setLoginError(err.message) }
     setLoginLoading(false)
   }
+
+  // Filter for map modal: pending orders and active riders
+  const pendingOrders = orders.filter((o: any) => o.deliveryStatus === 'pending')
+  const activeRiders = riders.filter((r: any) => r.status === 'active')
 
   if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>
 
@@ -219,6 +338,12 @@ export default function AdminPage() {
                           <option key={r.id} value={`${r.id}|${r.name}`}>{r.name} · {r.vehicle} · {r.area}</option>
                         ))}
                       </select>
+                      <button
+                        onClick={() => setShowMapModal(true)}
+                        className="flex items-center gap-1 bg-gray-800 text-white px-3 py-1.5 rounded-full text-xs font-bold hover:bg-gray-700"
+                      >
+                        <MapPin size={12} /> View on Map
+                      </button>
                     </div>
                   )}
 
@@ -315,6 +440,19 @@ export default function AdminPage() {
           </div>
         )}
       </main>
+
+      {/* Map Modal for Rider Assignment */}
+      {showMapModal && (
+        <RiderMapModal
+          orders={pendingOrders}
+          riders={activeRiders}
+          onAssign={(orderId, riderId, riderName) => {
+            assignRider(orderId, riderId, riderName)
+            setShowMapModal(false)
+          }}
+          onClose={() => setShowMapModal(false)}
+        />
+      )}
     </div>
   )
 }
