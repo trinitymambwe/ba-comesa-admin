@@ -1,131 +1,17 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { auth, db } from '@/lib/firebase'
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth'
 import { collection, getDocs, query, orderBy, updateDoc, doc, limit } from 'firebase/firestore'
 import Link from 'next/link'
 import {
   BarChart3, Package, Bike, MessageSquare, Map, LogOut, TrendingUp,
-  Users, ShoppingBag, Star, CheckCircle, XCircle, Clock, UserCheck, MapPin
+  Users, ShoppingBag, Star, CheckCircle, XCircle, Clock, UserCheck, ChevronDown, ChevronUp
 } from 'lucide-react'
 
 const ADMIN_UID = 'aGp4yilLXHf26EuHV236plJZHoa2'
 
-// ---------- Map Modal Component ----------
-function RiderMapModal({
-  orders,
-  riders,
-  onAssign,
-  onClose,
-}: {
-  orders: any[]
-  riders: any[]
-  onAssign: (orderId: string, riderId: string, riderName: string) => void
-  onClose: () => void
-}) {
-  const mapRef = useRef<HTMLDivElement>(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
-
-  useEffect(() => {
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = 'https://unpkg.com/leaflet@1.7.1/dist/leaflet.css'
-    document.head.appendChild(link)
-
-    const script = document.createElement('script')
-    script.src = 'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js'
-    script.onload = () => setMapLoaded(true)
-    document.head.appendChild(script)
-
-    return () => {
-      // cleanup link/script if needed (optional)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!mapLoaded || !mapRef.current) return
-    const L = (window as any).L
-    const map = L.map(mapRef.current).setView([-15.4082, 28.2871], 13)
-
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 19,
-    }).addTo(map)
-
-    // Rider markers
-    const riderIcon = L.divIcon({
-      html: `<div style="background:#e33124;color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid white;box-shadow:0 2px 10px rgba(0,0,0,0.3)">🚴</div>`,
-      iconSize: [32, 32],
-      className: '',
-    })
-
-    riders.forEach((r: any) => {
-      // If rider has lat/lng from profile, use those; otherwise simulate around Lusaka
-      const lat = r.lat || -15.4082 + (Math.random() * 0.04 - 0.02)
-      const lng = r.lng || 28.2871 + (Math.random() * 0.04 - 0.02)
-      const marker = L.marker([lat, lng], { icon: riderIcon }).addTo(map)
-      marker.bindPopup(`<b>${r.name}</b><br/>${r.vehicle || 'Bicycle'} · ${r.area || ''}`)
-      marker.on('click', () => {
-        // Clicking a rider assigns the first pending order in the list
-        const pendingOrder = orders.find((o: any) => o.deliveryStatus === 'pending')
-        if (pendingOrder) {
-          onAssign(pendingOrder.id, r.id, r.name)
-          map.closePopup()
-        } else {
-          alert('No pending orders to assign.')
-        }
-      })
-    })
-
-    // Customer locations
-    const customerIcon = L.divIcon({
-      html: `<div style="background:#22c55e;color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid white;box-shadow:0 2px 10px rgba(0,0,0,0.3)">📍</div>`,
-      iconSize: [32, 32],
-      className: '',
-    })
-
-    orders
-      .filter((o: any) => o.deliveryStatus === 'pending' && o.deliveryLat && o.deliveryLng)
-      .forEach((o: any) => {
-        L.marker([o.deliveryLat, o.deliveryLng], { icon: customerIcon })
-          .addTo(map)
-          .bindPopup(`<b>${o.productName}</b><br/>${o.buyerName || o.buyerEmail}`)
-      })
-
-    // Fit bounds to all markers if there are any
-    const allLatLngs = [
-      ...riders.map((r: any) => [r.lat || -15.4082, r.lng || 28.2871]),
-      ...orders
-        .filter((o: any) => o.deliveryLat && o.deliveryLng)
-        .map((o: any) => [o.deliveryLat, o.deliveryLng]),
-    ]
-    if (allLatLngs.length > 0) {
-      const bounds = L.latLngBounds(allLatLngs)
-      map.fitBounds(bounds, { padding: [30, 30] })
-    }
-
-    return () => map.remove()
-  }, [mapLoaded, riders, orders])
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ backgroundColor: '#1a1a2e', color: 'white', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <MapPin size={18} color="#e33124" /> Select a rider from the map
-        </span>
-        <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '14px' }}>✕</button>
-      </div>
-      <div ref={mapRef} style={{ flex: 1 }} />
-      <div style={{ backgroundColor: '#1a1a2e', color: 'rgba(255,255,255,0.7)', padding: '12px 16px', textAlign: 'center', fontSize: '13px' }}>
-        Tap a rider to assign the pending order
-      </div>
-    </div>
-  )
-}
-
-// ---------- Main Admin Page ----------
 export default function AdminPage() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -139,7 +25,7 @@ export default function AdminPage() {
   const [riders, setRiders] = useState<any[]>([])
   const [stats, setStats] = useState({ visits: 0, todayVisits: 0, users: 0, products: 0 })
   const [activeTab, setActiveTab] = useState<'stats' | 'orders' | 'feedback' | 'riders'>('stats')
-  const [showMapModal, setShowMapModal] = useState(false)
+  const [expandedRider, setExpandedRider] = useState<string | null>(null)
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false) })
@@ -205,9 +91,8 @@ export default function AdminPage() {
     setLoginLoading(false)
   }
 
-  // Filter for map modal: pending orders and active riders
-  const pendingOrders = orders.filter((o: any) => o.deliveryStatus === 'pending')
-  const activeRiders = riders.filter((r: any) => r.status === 'active')
+  // Get orders for a specific rider
+  const getRiderOrders = (riderId: string) => orders.filter((o: any) => o.riderId === riderId)
 
   if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>
 
@@ -250,14 +135,9 @@ export default function AdminPage() {
           <span className="text-xl font-black text-red-600">baComesa</span>
           <span className="bg-red-600 text-white text-xs px-3 py-1 rounded-full font-bold">ADMIN</span>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/admin/map" className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-gray-800 transition">
-            <Map size={16} /> Live Map
-          </Link>
-          <button onClick={() => signOut(auth)} className="text-gray-500 hover:text-red-600 text-sm flex items-center gap-1">
-            <LogOut size={14} /> Logout
-          </button>
-        </div>
+        <button onClick={() => signOut(auth)} className="text-gray-500 hover:text-red-600 text-sm flex items-center gap-1">
+          <LogOut size={14} /> Logout
+        </button>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
@@ -338,12 +218,6 @@ export default function AdminPage() {
                           <option key={r.id} value={`${r.id}|${r.name}`}>{r.name} · {r.vehicle} · {r.area}</option>
                         ))}
                       </select>
-                      <button
-                        onClick={() => setShowMapModal(true)}
-                        className="flex items-center gap-1 bg-gray-800 text-white px-3 py-1.5 rounded-full text-xs font-bold hover:bg-gray-700"
-                      >
-                        <MapPin size={12} /> View on Map
-                      </button>
                     </div>
                   )}
 
@@ -379,31 +253,88 @@ export default function AdminPage() {
                 No riders registered.
               </div>
             ) : (
-              riders.map((r: any) => (
-                <div key={r.id} className="bg-white rounded-2xl border p-4 flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-bold">{r.name}</p>
-                      <span className={`text-xs px-2 py-0.5 rounded-full flex items-center gap-1 ${r.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                        {r.status === 'active' ? <CheckCircle size={10} /> : <Clock size={10} />}
-                        {r.status}
-                      </span>
+              riders.map((r: any) => {
+                const riderOrders = getRiderOrders(r.id)
+                const isExpanded = expandedRider === r.id
+                return (
+                  <div key={r.id} className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                    {/* Rider row – always visible */}
+                    <div
+                      className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition"
+                      onClick={() => setExpandedRider(isExpanded ? null : r.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold">
+                          {r.name?.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-gray-900">{r.name}</p>
+                            <span className={`text-xs px-2 py-0.5 rounded-full flex items-center gap-1 ${r.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                              {r.status === 'active' ? <CheckCircle size={10} /> : <Clock size={10} />}
+                              {r.status}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-500">{r.phone} · {r.vehicle} · {r.area}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-red-600 font-bold">K{Number(r.earnings || 0).toLocaleString()}</p>
+                          <p className="text-xs text-gray-400">{r.deliveries || 0} deliveries</p>
+                        </div>
+                        <div className="text-gray-400">
+                          {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-500">{r.phone} · {r.vehicle} · {r.area}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <p className="text-red-600 font-bold">K{Number(r.earnings || 0).toLocaleString()}</p>
-                      <p className="text-xs text-gray-400">{r.deliveries || 0} deliveries</p>
-                    </div>
-                    {r.status === 'inactive' && (
-                      <button onClick={() => approveRider(r.id)} className="bg-green-500 text-white text-xs px-4 py-2 rounded-full font-bold hover:bg-green-600 flex items-center gap-1">
-                        <CheckCircle size={12} /> Approve
-                      </button>
+
+                    {/* Expanded rider details */}
+                    {isExpanded && (
+                      <div className="border-t px-4 py-4 bg-gray-50">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3">Assigned Deliveries ({riderOrders.length})</h4>
+                        {riderOrders.length === 0 ? (
+                          <p className="text-sm text-gray-400">No deliveries assigned yet.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {riderOrders.map((o: any) => (
+                              <div key={o.id} className="flex items-center justify-between bg-white p-3 rounded-lg border">
+                                <div>
+                                  <p className="font-medium text-sm text-gray-800">{o.productName}</p>
+                                  <p className="text-xs text-gray-500">{o.buyerName || o.buyerEmail} · {o.deliveryAddress}</p>
+                                  <span className={`text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1 mt-1 ${
+                                    o.deliveryStatus === 'delivered' ? 'bg-green-100 text-green-700' :
+                                    o.deliveryStatus === 'picked_up' ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {o.deliveryStatus === 'assigned' && <UserCheck size={10} />}
+                                    {o.deliveryStatus === 'picked_up' && <Bike size={10} />}
+                                    {o.deliveryStatus === 'delivered' && <CheckCircle size={10} />}
+                                    {o.deliveryStatus?.replace('_', ' ')}
+                                  </span>
+                                </div>
+                                <div className="flex gap-2">
+                                  {o.deliveryStatus === 'assigned' && (
+                                    <button onClick={() => updateOrderStatus(o.id, 'picked_up')} className="text-xs bg-yellow-500 text-white px-2 py-1 rounded-full">Pick Up</button>
+                                  )}
+                                  {o.deliveryStatus === 'picked_up' && (
+                                    <button onClick={() => updateOrderStatus(o.id, 'delivered')} className="text-xs bg-green-500 text-white px-2 py-1 rounded-full">Deliver</button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {r.status === 'inactive' && (
+                          <button onClick={() => approveRider(r.id)} className="mt-4 bg-green-500 text-white text-xs px-4 py-2 rounded-full font-bold hover:bg-green-600">
+                            Approve Rider
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
         )}
@@ -440,19 +371,6 @@ export default function AdminPage() {
           </div>
         )}
       </main>
-
-      {/* Map Modal for Rider Assignment */}
-      {showMapModal && (
-        <RiderMapModal
-          orders={pendingOrders}
-          riders={activeRiders}
-          onAssign={(orderId, riderId, riderName) => {
-            assignRider(orderId, riderId, riderName)
-            setShowMapModal(false)
-          }}
-          onClose={() => setShowMapModal(false)}
-        />
-      )}
     </div>
   )
 }
